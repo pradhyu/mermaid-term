@@ -1,0 +1,6 @@
+graph LR
+    Client[Web Client] --> LB[Load Balancer]
+    LB --> App1[App Server 1]
+    LB --> App2[App Server 2]
+    App1 --> DB[(Primary Database)]
+    App2 --> DB

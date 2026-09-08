@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant AuthService
+    participant Database
+
+    User->>Frontend: Submit credentials
+    Frontend->>AuthService: POST /api/login
+    AuthService->>Database: Query user record
+    Database-->>AuthService: Return hashed password
+    AuthService->>AuthService: Verify bcrypt hash
+    AuthService-->>Frontend: 200 OK + JWT
+    Frontend-->>User: Redirect to Dashboard

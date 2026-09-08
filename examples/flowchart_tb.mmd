@@ -1,0 +1,5 @@
+graph TD
+    Start[User Login Request] --> Validate[Validate Credentials]
+    Validate --> AuthCheck[Check 2FA Enabled]
+    AuthCheck --> Session[Generate JWT Session]
+    Session --> Finish[Return 200 OK]
