@@ -1,5 +1,6 @@
 use crate::color::Ansi;
 use crate::parser::*;
+use std::collections::{HashMap, HashSet};
 
 pub fn render_ascii(diagram: &ParsedDiagram) -> String {
     match diagram {
@@ -11,7 +12,7 @@ pub fn render_ascii(diagram: &ParsedDiagram) -> String {
 
 fn format_node_box(node: &Node) -> Vec<String> {
     let lbl = &node.label;
-    let len = lbl.len();
+    let len = lbl.chars().count();
 
     let (border_color, text_color, reset) = if let Some(ref style) = node.style {
         let b_color = style
@@ -132,49 +133,87 @@ fn render_flowchart_ascii(fc: &Flowchart) -> String {
             }
         }
         _ => {
-            for (i, edge) in fc.edges.iter().enumerate() {
-                let from_node = get_node(&edge.from);
-                let to_node = get_node(&edge.to);
+            let mut ordered_node_ids = Vec::new();
+            let mut in_degrees: HashMap<String, usize> = HashMap::new();
+            let mut adj: HashMap<String, Vec<(String, Option<String>, EdgeType)>> = HashMap::new();
 
-                let from_box = format_node_box(&from_node);
-                let to_box = format_node_box(&to_node);
+            for node in &fc.nodes {
+                in_degrees.insert(node.id.clone(), 0);
+                adj.insert(node.id.clone(), Vec::new());
+            }
 
-                for row in &from_box {
+            for edge in &fc.edges {
+                *in_degrees.entry(edge.to.clone()).or_insert(0) += 1;
+                in_degrees.entry(edge.from.clone()).or_insert(0);
+                adj.entry(edge.from.clone())
+                    .or_default()
+                    .push((edge.to.clone(), edge.label.clone(), edge.edge_type));
+            }
+
+            let mut visited = HashSet::new();
+            let roots: Vec<String> = fc.nodes
+                .iter()
+                .filter(|n| in_degrees.get(&n.id).copied().unwrap_or(0) == 0)
+                .map(|n| n.id.clone())
+                .collect();
+
+            let mut queue = if !roots.is_empty() {
+                roots
+            } else if !fc.nodes.is_empty() {
+                vec![fc.nodes[0].id.clone()]
+            } else {
+                Vec::new()
+            };
+
+            while let Some(curr) = queue.pop() {
+                if visited.insert(curr.clone()) {
+                    ordered_node_ids.push(curr.clone());
+                    if let Some(neighbors) = adj.get(&curr) {
+                        for (next_id, _, _) in neighbors {
+                            if !visited.contains(next_id) {
+                                queue.push(next_id.clone());
+                            }
+                        }
+                    }
+                }
+            }
+
+            for node in &fc.nodes {
+                if visited.insert(node.id.clone()) {
+                    ordered_node_ids.push(node.id.clone());
+                }
+            }
+
+            for (idx, node_id) in ordered_node_ids.iter().enumerate() {
+                let node = get_node(node_id);
+                let node_box = format_node_box(&node);
+
+                for row in &node_box {
                     out.push_str(row);
                     out.push('\n');
                 }
 
-                if let Some(lbl) = &edge.label {
-                    out.push_str(&format!("{}     │  {}{}{}\n", Ansi::DIM, Ansi::YELLOW, lbl, Ansi::RESET));
-                }
-
-                match edge.edge_type {
-                    EdgeType::DottedArrow => out.push_str(&format!("{}     :\n     ▼{}\n", Ansi::YELLOW, Ansi::RESET)),
-                    EdgeType::ThickArrow => out.push_str(&format!("{}     ║\n     ▼{}\n", Ansi::BRIGHT_GREEN, Ansi::RESET)),
-                    EdgeType::SolidArrow => out.push_str(&format!("{}     │\n     ▼{}\n", Ansi::BLUE, Ansi::RESET)),
-                    EdgeType::SolidLine => out.push_str(&format!("{}     │\n     │{}\n", Ansi::DIM, Ansi::RESET)),
-                }
-
-                for row in &to_box {
-                    out.push_str(row);
-                    out.push('\n');
-                }
-
-                if i < fc.edges.len() - 1 {
-                    out.push('\n');
+                if let Some(edges) = adj.get(node_id) {
+                    for (_, label, edge_type) in edges {
+                        if let Some(lbl) = label {
+                            out.push_str(&format!("{}     │  {}{}{}\n", Ansi::DIM, Ansi::YELLOW, lbl, Ansi::RESET));
+                        }
+                        match edge_type {
+                            EdgeType::DottedArrow => out.push_str(&format!("{}     :\n     ▼{}\n", Ansi::YELLOW, Ansi::RESET)),
+                            EdgeType::ThickArrow => out.push_str(&format!("{}     ║\n     ▼{}\n", Ansi::BRIGHT_GREEN, Ansi::RESET)),
+                            EdgeType::SolidArrow => out.push_str(&format!("{}     │\n     ▼{}\n", Ansi::BLUE, Ansi::RESET)),
+                            EdgeType::SolidLine => out.push_str(&format!("{}     │\n     │{}\n", Ansi::DIM, Ansi::RESET)),
+                        }
+                    }
+                } else if idx < ordered_node_ids.len() - 1 {
+                    out.push_str(&format!("{}     │\n     ▼{}\n", Ansi::BLUE, Ansi::RESET));
                 }
             }
         }
     }
 
-    if fc.edges.is_empty() {
-        for node in &fc.nodes {
-            for row in format_node_box(node) {
-                out.push_str(&row);
-                out.push('\n');
-            }
-            out.push('\n');
-        }
+    if fc.nodes.is_empty() {
+        return "Empty diagram".to_string();
     }
 
     out
@@ -191,19 +230,26 @@ fn render_sequence_ascii(seq: &SequenceDiagram) -> String {
     let mut header_lines = String::new();
     let mut header_bots = String::new();
 
-    for p in &seq.participants {
-        let label = if p.len() > col_width - 4 {
-            &p[..col_width - 4]
-        } else {
-            p
-        };
-        let pad = (col_width - 2).saturating_sub(label.len() + 2);
-        let pad_left = pad / 2;
-        let pad_right = pad - pad_left;
+    let box_inner_width = col_width - 2; // 16 inner chars: ┌────────────────┐
 
-        header_boxes.push_str(&format!("{}┌{:─<width$}┐{} ", Ansi::CYAN, "", Ansi::RESET, width = col_width - 2));
-        header_lines.push_str(&format!("{}│{}{:pad_l$}{}{}{:pad_r$}{}│{} ", Ansi::CYAN, Ansi::RESET, "", Ansi::BOLD, label, "", Ansi::CYAN, Ansi::RESET, pad_l = pad_left, pad_r = pad_right));
-        header_bots.push_str(&format!("{}└{:─<width$}┘{} ", Ansi::CYAN, "", Ansi::RESET, width = col_width - 2));
+    for p in &seq.participants {
+        let label = if p.chars().count() > box_inner_width - 2 {
+            let s: String = p.chars().take(box_inner_width - 2).collect();
+            s
+        } else {
+            p.clone()
+        };
+        let label_len = label.chars().count();
+        let total_pad = box_inner_width.saturating_sub(label_len);
+        let pad_left = total_pad / 2;
+        let pad_right = total_pad - pad_left;
+
+        let spaces_l = " ".repeat(pad_left);
+        let spaces_r = " ".repeat(pad_right);
+
+        header_boxes.push_str(&format!("{}┌{:─<w$}┐{} ", Ansi::CYAN, "", Ansi::RESET, w = box_inner_width));
+        header_lines.push_str(&format!("{}│{}{}{}{}{}│{} ", Ansi::CYAN, spaces_l, Ansi::BOLD, label, Ansi::RESET, spaces_r, Ansi::CYAN));
+        header_bots.push_str(&format!("{}└{:─<w$}┘{} ", Ansi::CYAN, "", Ansi::RESET, w = box_inner_width));
     }
 
     out.push_str(&header_boxes);
@@ -271,16 +317,16 @@ fn render_sequence_ascii(seq: &SequenceDiagram) -> String {
                 }
             }
             SequenceItem::LoopStart { label } => {
-                out.push_str(&format!("{} ╭── loop [{}{}{}] {:─<w$}╮{}\n", Ansi::MAGENTA, Ansi::WHITE, label, Ansi::MAGENTA, "", Ansi::RESET, w = total_width.saturating_sub(label.len() + 16)));
+                out.push_str(&format!("{} ╭── loop [{}{}{}] {:─<w$}╮{}\n", Ansi::MAGENTA, Ansi::WHITE, label, Ansi::MAGENTA, "", Ansi::RESET, w = total_width.saturating_sub(label.chars().count() + 16)));
             }
             SequenceItem::LoopEnd => {
                 out.push_str(&format!("{} ╰{:─<w$}╯{}\n", Ansi::MAGENTA, "", Ansi::RESET, w = total_width.saturating_sub(4)));
             }
             SequenceItem::AltStart { label } => {
-                out.push_str(&format!("{} ╭── alt [{}{}{}] {:─<w$}╮{}\n", Ansi::YELLOW, Ansi::WHITE, label, Ansi::YELLOW, "", Ansi::RESET, w = total_width.saturating_sub(label.len() + 15)));
+                out.push_str(&format!("{} ╭── alt [{}{}{}] {:─<w$}╮{}\n", Ansi::YELLOW, Ansi::WHITE, label, Ansi::YELLOW, "", Ansi::RESET, w = total_width.saturating_sub(label.chars().count() + 15)));
             }
             SequenceItem::AltElse { label } => {
-                out.push_str(&format!("{} ├── else [{}{}{}] {:─<w$}┤{}\n", Ansi::YELLOW, Ansi::WHITE, label, Ansi::YELLOW, "", Ansi::RESET, w = total_width.saturating_sub(label.len() + 16)));
+                out.push_str(&format!("{} ├── else [{}{}{}] {:─<w$}┤{}\n", Ansi::YELLOW, Ansi::WHITE, label, Ansi::YELLOW, "", Ansi::RESET, w = total_width.saturating_sub(label.chars().count() + 16)));
             }
             SequenceItem::AltEnd => {
                 out.push_str(&format!("{} ╰{:─<w$}╯{}\n", Ansi::YELLOW, "", Ansi::RESET, w = total_width.saturating_sub(4)));
@@ -298,7 +344,7 @@ fn render_class_ascii(cls: &ClassDiagram) -> String {
     let mut out = String::new();
 
     for c in &cls.classes {
-        let max_w = c.members.iter().map(|m| m.name.len() + m.member_type.len() + 4).max().unwrap_or(0).max(c.name.len() + 4);
+        let max_w = c.members.iter().map(|m| m.name.chars().count() + m.member_type.chars().count() + 4).max().unwrap_or(0).max(c.name.chars().count() + 4);
 
         out.push_str(&format!("{}┌{:─<w$}┐{}\n", Ansi::CYAN, "", Ansi::RESET, w = max_w));
         out.push_str(&format!("{}│ {}{:^w$}{} │{}\n", Ansi::CYAN, Ansi::BOLD, c.name, Ansi::CYAN, Ansi::RESET, w = max_w - 2));
@@ -310,7 +356,7 @@ fn render_class_ascii(cls: &ClassDiagram) -> String {
             } else {
                 format!("{}{} {}{}{}", Ansi::YELLOW, m.visibility, Ansi::WHITE, m.name, if m.member_type.is_empty() { "".to_string() } else { format!(": {}{}", Ansi::DIM, m.member_type) })
             };
-            out.push_str(&format!("{}│ {}{:<w$}{} │{}\n", Ansi::CYAN, m_str, "", Ansi::CYAN, Ansi::RESET, w = max_w.saturating_sub(m.name.len() + m.member_type.len() + 6)));
+            out.push_str(&format!("{}│ {}{:<w$}{} │{}\n", Ansi::CYAN, m_str, "", Ansi::CYAN, Ansi::RESET, w = max_w.saturating_sub(m.name.chars().count() + m.member_type.chars().count() + 6)));
         }
 
         out.push_str(&format!("{}└{:─<w$}┘{}\n\n", Ansi::CYAN, "", Ansi::RESET, w = max_w));

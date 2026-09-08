@@ -1,5 +1,6 @@
 use crate::parser;
 use crate::renderer;
+use ansi_to_tui::IntoText;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
@@ -10,7 +11,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
@@ -142,10 +143,13 @@ fn run_loop(
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 ));
 
-            let display_text = if let Some(ref err) = app.error_msg {
-                format!("Diagram Parse Error:\n{}", err)
+            let display_text: Text = if let Some(ref err) = app.error_msg {
+                Text::from(format!("Diagram Parse Error:\n{}", err))
             } else {
-                app.rendered_diagram.clone()
+                app.rendered_diagram
+                    .as_bytes()
+                    .into_text()
+                    .unwrap_or_else(|_| Text::from(app.rendered_diagram.clone()))
             };
 
             let paragraph = Paragraph::new(display_text)
