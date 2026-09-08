@@ -2,7 +2,7 @@ use crate::parser;
 use crate::renderer;
 use ansi_to_tui::IntoText;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -161,44 +161,75 @@ fn run_loop(
             let status_line = Line::from(vec![
                 Span::styled(" [q] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::raw(" Quit  "),
-                Span::styled(" [hjkl / Arrows] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(" [hjkl / Arrows / Mouse] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::raw(" Pan  "),
+                Span::styled(" [d/u] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw(" Half Page  "),
                 Span::styled(" [0] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::raw(" Reset  "),
                 Span::styled(" [r] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::raw(" Reload  "),
-                Span::styled(format!(" (Pos: {}, {}) ", app.scroll_x, app.scroll_y), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!(" [Pos X: {}, Y: {}] ", app.scroll_x, app.scroll_y), Style::default().fg(Color::DarkGray)),
             ]);
 
             f.render_widget(Paragraph::new(status_line), chunks[1]);
         })?;
 
         if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(()),
-                    KeyCode::Char('h') | KeyCode::Left => {
-                        app.scroll_x = app.scroll_x.saturating_sub(4);
+            match event::read()? {
+                Event::Key(key) => {
+                    // Only process Press / Repeat events (skip Release events from modern terminals)
+                    if key.kind != KeyEventKind::Release {
+                        match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(()),
+                            KeyCode::Char('h') | KeyCode::Left => {
+                                app.scroll_x = app.scroll_x.saturating_sub(4);
+                            }
+                            KeyCode::Char('l') | KeyCode::Right => {
+                                app.scroll_x = app.scroll_x.saturating_add(4);
+                            }
+                            KeyCode::Char('j') | KeyCode::Down => {
+                                app.scroll_y = app.scroll_y.saturating_add(2);
+                            }
+                            KeyCode::Char('k') | KeyCode::Up => {
+                                app.scroll_y = app.scroll_y.saturating_sub(2);
+                            }
+                            KeyCode::Char('d') | KeyCode::PageDown => {
+                                app.scroll_y = app.scroll_y.saturating_add(10);
+                            }
+                            KeyCode::Char('u') | KeyCode::PageUp => {
+                                app.scroll_y = app.scroll_y.saturating_sub(10);
+                            }
+                            KeyCode::Char('0') | KeyCode::Home => {
+                                app.scroll_x = 0;
+                                app.scroll_y = 0;
+                            }
+                            KeyCode::Char('r') => {
+                                app.reload_file();
+                            }
+                            _ => {}
+                        }
                     }
-                    KeyCode::Char('l') | KeyCode::Right => {
-                        app.scroll_x = app.scroll_x.saturating_add(4);
-                    }
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        app.scroll_y = app.scroll_y.saturating_add(2);
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        app.scroll_y = app.scroll_y.saturating_sub(2);
-                    }
-                    KeyCode::Char('0') => {
-                        app.scroll_x = 0;
-                        app.scroll_y = 0;
-                    }
-                    KeyCode::Char('r') => {
-                        app.reload_file();
-                    }
-                    _ => {}
                 }
+                Event::Mouse(mouse) => {
+                    match mouse.kind {
+                        event::MouseEventKind::ScrollDown => {
+                            app.scroll_y = app.scroll_y.saturating_add(2);
+                        }
+                        event::MouseEventKind::ScrollUp => {
+                            app.scroll_y = app.scroll_y.saturating_sub(2);
+                        }
+                        event::MouseEventKind::ScrollRight => {
+                            app.scroll_x = app.scroll_x.saturating_add(4);
+                        }
+                        event::MouseEventKind::ScrollLeft => {
+                            app.scroll_x = app.scroll_x.saturating_sub(4);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
             }
         }
     }

@@ -230,7 +230,7 @@ fn render_sequence_ascii(seq: &SequenceDiagram) -> String {
     let mut header_lines = String::new();
     let mut header_bots = String::new();
 
-    let box_inner_width = col_width - 2; // 16 inner chars: ┌────────────────┐
+    let box_inner_width = col_width - 2;
 
     for p in &seq.participants {
         let label = if p.chars().count() > box_inner_width - 2 {
@@ -344,22 +344,40 @@ fn render_class_ascii(cls: &ClassDiagram) -> String {
     let mut out = String::new();
 
     for c in &cls.classes {
-        let max_w = c.members.iter().map(|m| m.name.chars().count() + m.member_type.chars().count() + 4).max().unwrap_or(0).max(c.name.chars().count() + 4);
+        let member_lens: Vec<usize> = c.members.iter().map(|m| m.raw.chars().count()).collect();
+        let max_member_len = member_lens.into_iter().max().unwrap_or(0);
+        let name_len = c.name.chars().count();
+        
+        // Inner width is determined by the longest member or class title plus symmetric padding
+        let inner_width = max_member_len.max(name_len + 4) + 2;
 
-        out.push_str(&format!("{}┌{:─<w$}┐{}\n", Ansi::CYAN, "", Ansi::RESET, w = max_w));
-        out.push_str(&format!("{}│ {}{:^w$}{} │{}\n", Ansi::CYAN, Ansi::BOLD, c.name, Ansi::CYAN, Ansi::RESET, w = max_w - 2));
-        out.push_str(&format!("{}├{:─<w$}┤{}\n", Ansi::CYAN, "", Ansi::RESET, w = max_w));
+        out.push_str(&format!("{}┌{:─<w$}┐{}\n", Ansi::CYAN, "", Ansi::RESET, w = inner_width));
+        
+        // Center class name
+        let title_total_pad = inner_width.saturating_sub(name_len);
+        let title_pad_l = title_total_pad / 2;
+        let title_pad_r = title_total_pad - title_pad_l;
+        let spaces_l = " ".repeat(title_pad_l);
+        let spaces_r = " ".repeat(title_pad_r);
+        out.push_str(&format!("{}│{}{}{}{}{}│{}\n", Ansi::CYAN, spaces_l, Ansi::BOLD, c.name, Ansi::RESET, spaces_r, Ansi::CYAN));
+        
+        out.push_str(&format!("{}├{:─<w$}┤{}\n", Ansi::CYAN, "", Ansi::RESET, w = inner_width));
 
         for m in &c.members {
-            let m_str = if m.is_method {
-                format!("{}{} {}{}{}", Ansi::GREEN, m.visibility, Ansi::WHITE, m.name, if m.member_type.is_empty() { "".to_string() } else { format!(": {}{}", Ansi::DIM, m.member_type) })
+            let m_len = m.raw.chars().count();
+            let pad_r = inner_width.saturating_sub(m_len + 1);
+            let spaces = " ".repeat(pad_r);
+
+            let (colored_member, reset) = if m.raw.contains('(') {
+                (format!("{}{}", Ansi::GREEN, m.raw), Ansi::RESET)
             } else {
-                format!("{}{} {}{}{}", Ansi::YELLOW, m.visibility, Ansi::WHITE, m.name, if m.member_type.is_empty() { "".to_string() } else { format!(": {}{}", Ansi::DIM, m.member_type) })
+                (format!("{}{}", Ansi::YELLOW, m.raw), Ansi::RESET)
             };
-            out.push_str(&format!("{}│ {}{:<w$}{} │{}\n", Ansi::CYAN, m_str, "", Ansi::CYAN, Ansi::RESET, w = max_w.saturating_sub(m.name.chars().count() + m.member_type.chars().count() + 6)));
+
+            out.push_str(&format!("{}│ {}{}{}│{}\n", Ansi::CYAN, colored_member, spaces, reset, Ansi::CYAN));
         }
 
-        out.push_str(&format!("{}└{:─<w$}┘{}\n\n", Ansi::CYAN, "", Ansi::RESET, w = max_w));
+        out.push_str(&format!("{}└{:─<w$}┘{}\n\n", Ansi::CYAN, "", Ansi::RESET, w = inner_width));
     }
 
     for rel in &cls.relations {

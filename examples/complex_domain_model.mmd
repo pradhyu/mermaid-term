@@ -1,0 +1,44 @@
+classDiagram
+    class AggregateRoot {
+        +UUID id
+        +DateTime createdAt
+        +DateTime updatedAt
+        +int version
+        +markModified()
+    }
+    
+    class UserAccount {
+        +String email
+        +String passwordHash
+        +bool isVerified
+        +verifyEmail(String token) bool
+        +changePassword(String oldPass, String newPass) bool
+    }
+    
+    class Order {
+        +String orderNumber
+        +OrderStatus status
+        +Decimal totalAmount
+        +calculateTax() Decimal
+        +cancelOrder(String reason) bool
+    }
+    
+    class OrderItem {
+        +UUID productId
+        +String sku
+        +int quantity
+        +Decimal unitPrice
+    }
+    
+    class PaymentTransaction {
+        +String gatewayId
+        +String currency
+        +PaymentStatus status
+        +capturePayment() bool
+        +refund(Decimal amount) bool
+    }
+    
+    AggregateRoot <|-- UserAccount : extends
+    AggregateRoot <|-- Order : extends
+    Order *-- OrderItem : contains
+    Order o-- PaymentTransaction : references

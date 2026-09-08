@@ -80,10 +80,7 @@ pub struct SequenceDiagram {
 
 #[derive(Debug, Clone)]
 pub struct ClassMember {
-    pub visibility: char,
-    pub name: String,
-    pub member_type: String,
-    pub is_method: bool,
+    pub raw: String,
 }
 
 #[derive(Debug, Clone)]
@@ -156,7 +153,6 @@ fn parse_flowchart(lines: &[&str]) -> Result<ParsedDiagram, String> {
     for line in &lines[1..] {
         let trimmed = line.trim();
 
-        // Check for style directives: style NodeId fill:#f9f,stroke:#333,stroke-width:4px,color:#fff
         if trimmed.starts_with("style ") {
             let parts: Vec<&str> = trimmed.trim_start_matches("style ").split_whitespace().collect();
             if parts.len() >= 2 {
@@ -447,24 +443,9 @@ fn parse_class_diagram(lines: &[&str]) -> Result<ParsedDiagram, String> {
         } else if trimmed == "}" {
             current_class = None;
         } else if let Some(ref class_name) = current_class {
-            let is_method = trimmed.contains('(');
-            let vis = match trimmed.chars().next() {
-                Some(c) if c == '+' || c == '-' || c == '#' || c == '~' => c,
-                _ => '+',
-            };
-            let member_str = trimmed.trim_start_matches(['+', '-', '#', '~']).trim();
-            let (m_type, name) = if let Some(space) = member_str.find(' ') {
-                (member_str[..space].to_string(), member_str[space + 1..].to_string())
-            } else {
-                ("".to_string(), member_str.to_string())
-            };
-
             if let Some(c) = classes.get_mut(class_name) {
                 c.members.push(ClassMember {
-                    visibility: vis,
-                    name,
-                    member_type: m_type,
-                    is_method,
+                    raw: trimmed.to_string(),
                 });
             }
         } else if trimmed.contains("<|--") || trimmed.contains("*--") || trimmed.contains("o--") || trimmed.contains("-->") {

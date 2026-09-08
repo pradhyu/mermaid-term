@@ -1,0 +1,28 @@
+graph TD
+    Ingest([Edge API Gateway]) --> RateLimit{Rate Limit OK?}
+    
+    RateLimit -.->|Exceeded| Throttle[Return 429 Too Many Requests]
+    RateLimit ==>|Passed| AuthCheck[Validate JWT Signature]
+    
+    AuthCheck --> Router{Route Event Type}
+    
+    Router -->|Payment| PayQueue[(Kafka Payments Topic)]
+    Router -->|Analytics| ClickQueue[(SQS Events Queue)]
+    Router -->|Order| OrderService[Process Order Worker]
+    
+    PayQueue ==> StripeWorker[Stripe Settlement]
+    StripeWorker --> Ledger[(PostgreSQL Ledger)]
+    
+    ClickQueue -.-> ClickHouse[(ClickHouse Analytics DB)]
+    OrderService --> StockCheck{Stock Available?}
+    
+    StockCheck -.->|No| OutOfStock[Dispatch Out of Stock Email]
+    StockCheck ==>|Yes| Warehouse[(WMS Database)]
+    Warehouse --> Shipping[Generate DHL Tracking Label]
+    Shipping --> Complete([Order Dispatched])
+    
+    style Ingest stroke:cyan,color:white
+    style Throttle stroke:red,color:red
+    style PayQueue stroke:yellow,color:yellow
+    style Ledger stroke:green,color:white
+    style Complete stroke:#00ff88,color:white

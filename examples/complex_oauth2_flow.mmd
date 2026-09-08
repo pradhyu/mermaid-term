@@ -1,0 +1,26 @@
+sequenceDiagram
+    participant Client as Web App
+    participant Auth0 as Identity Provider
+    participant API as Backend Gateway
+    participant DB as Postgres Vault
+
+    Client->>Auth0: GET /authorize?client_id=123
+    Note over Auth0: Authenticate user & check 2FA token
+    Auth0-->>Client: 302 Redirect with Auth Code
+    
+    loop Token Exchange Handshake
+        Client->>Auth0: POST /oauth/token (code + secret)
+        Auth0-->>Client: 200 OK (Access Token + Refresh Token)
+    end
+
+    alt Valid Token Presentation
+        Client->>API: GET /api/v2/secure-resource (Bearer Token)
+        API->>DB: Query account details
+        DB-->>API: Return encrypted payload
+        API-->>Client: 200 OK JSON Data
+    else Expired or Invalid Token
+        Client->>API: GET /api/v2/secure-resource (Expired Token)
+        API-->>Client: 401 Unauthorized (Token Expired)
+        Client->>Auth0: POST /oauth/token (grant_type=refresh_token)
+        Auth0-->>Client: 200 OK (New Access Token)
+    end
