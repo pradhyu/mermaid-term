@@ -122,3 +122,4 @@ Explore ready-to-run examples in the [`examples/`](./examples/) folder:
 
 ## 📄 License
 MIT License
+# mermaid-term
